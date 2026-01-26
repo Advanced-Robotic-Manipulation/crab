@@ -1,0 +1,160 @@
+# Crab
+
+The Crab robot is a bimanual mobile manipulator with two SO-101 follower arms and a 2-wheel differential drive base.
+
+## Prerequisites
+
+- Two assembled [SO-101 Follower Arms](./so101)
+- A 2-wheel mobile base platform (placeholders for now, actual motors will be integrated later)
+- Cameras: one for each arm, and one main camera (e.g., OpenCV compatible cameras)
+- A control computer (your workstation)
+- An onboard computer for the robot (e.g., Raspberry Pi) capable of running Python and connecting to motors/cameras.
+- Power supply for the robot components.
+
+## Install LeRobot
+
+Follow the [installation instructions](../installation) to install LeRobot on both your control computer and the robot's onboard computer.
+
+In addition to these instructions, you need to install the Feetech SDK on both machines, as the SO-101 arms use Feetech motors:
+
+```bash
+pip install -e ".[feetech]"
+```
+
+## Configure the motors
+
+### 1. Find the USB ports associated with each arm
+
+To find the serial port for each SO-101 arm, connect one arm at a time to your robot's onboard computer and run the `lerobot-find-port` script. Make a note of the port paths (e.g., `/dev/ttyACM0`, `/dev/ttyACM1`).
+
+```bash
+lerobot-find-port
+```
+
+### 2. Set the motors IDs and baudrates
+
+Each motor needs a unique ID and a consistent baud rate. This process is similar to the SO-101 arm setup. You will connect each motor individually to the controller board to configure it.
+
+Connect the USB cable from your robot's onboard computer and the power supply to the first SO-101 arm's controller board. Then, run the `lerobot-setup-motors` command, replacing the port with the one you found for that arm:
+
+```bash
+lerobot-setup-motors \
+    --robot.type=so101_follower \
+    --robot.port=/dev/ttyACM0 # <- Replace with your left arm's port
+```
+
+Repeat this process for the second SO-101 arm. For a visual reference on how to set the motor IDs, refer to the [SO101 setup motors video](./so101#setup-motors-video).
+
+## Calibration
+
+Next, you'll need to calibrate both SO-101 arms. This ensures that the robot's perception of joint positions aligns with their physical reality, which is crucial for consistent behavior and training.
+
+Connect both SO-101 arms to your robot's onboard computer.
+
+#### Calibrate Left Arm
+
+Run the following command on the robot's onboard computer to calibrate the left arm:
+
+```bash
+lerobot-calibrate \
+    --robot.type=so101_follower \
+    --robot.port=/dev/ttyACM0 \ # <- The port of your left arm
+    --robot.id=crab_left_arm # <- Give the arm a unique name
+```
+
+#### Calibrate Right Arm
+
+Run the following command on the robot's onboard computer to calibrate the right arm:
+
+```bash
+lerobot-calibrate \
+    --robot.type=so101_follower \
+    --robot.port=/dev/ttyACM1 \ # <- The port of your right arm
+    --robot.id=crab_right_arm # <- Give the arm a unique name
+```
+
+The calibration process for SO-101 arms involves moving each joint through its full range of motion. Refer to the [SO101 calibration video](./so101#calibration-video) for detailed steps.
+
+## Teleoperation
+
+To teleoperate the Crab robot, you will run a host script on the robot's onboard computer and a client script on your control computer. The arms will be controlled by two SO-101 Leader arms, and the mobile base via keyboard.
+
+### 1. Start Crab Host on Robot
+
+On your robot's onboard computer, navigate to your `lerobot` installation directory and run the `crab_host` script. Replace the port placeholders with the actual serial ports of your left and right SO-101 follower arms.
+
+```bash
+python -m lerobot.robots.crab.crab_host \
+    --robot.left_arm_port=/dev/ttyACM0 \
+    --robot.right_arm_port=/dev/ttyACM1 \
+    --robot.id=my_awesome_crab_robot
+```
+
+### 2. Start Teleoperation Client on Control Computer
+
+On your control computer, navigate to your `lerobot` installation directory.
+You will need two `SO101Leader` arms connected to your control computer. Replace the placeholders with their respective serial ports.
+
+```bash
+python examples/crab/teleoperate.py \
+    --robot.remote_ip=<IP_ADDRESS_OF_ROBOT> \ # e.g., 192.168.1.102
+    --robot.id=my_awesome_crab_robot_client \
+    --teleop.left_leader_port=/dev/ttyUSB0 \ # Replace with your left leader's port
+    --teleop.right_leader_port=/dev/ttyUSB1 # Replace with your right leader's port
+```
+
+**Keyboard Controls for Mobile Base:**
+
+| Key | Action         |
+| --- | -------------- |
+| W   | Move forward   |
+| S   | Move backward  |
+| A   | Turn left      |
+| D   | Turn right     |
+| Q   | Quit Teleop    |
+
+## Record, Replay, Train, Evaluate
+
+The Crab robot is now configured for various tasks within the LeRobot framework.
+
+### Record a Dataset
+
+To record teleoperated demonstrations, adapt the `examples/crab/record.py` script. Remember to set your Hugging Face repository ID and the remote IP of your robot.
+
+```bash
+python examples/crab/record.py \
+    --robot.remote_ip=<IP_ADDRESS_OF_ROBOT> \
+    --dataset.repo_id=<hf_username>/<your_crab_dataset>
+```
+
+### Replay an Episode
+
+To replay a previously recorded episode, modify the `examples/crab/replay.py` script with your dataset ID, episode index, and robot IP.
+
+```bash
+python examples/crab/replay.py \
+    --robot.remote_ip=<IP_ADDRESS_OF_ROBOT> \
+    --dataset.repo_id=<hf_username>/<your_crab_dataset> \
+    --dataset.episode_index=0
+```
+
+### Train a Policy
+
+You can train a policy using your recorded dataset. Refer to the general tutorial on [Getting started with real-world robots](../il_robots) for more information.
+
+### Evaluate a Policy
+
+To evaluate a trained policy, use the `examples/crab/evaluate.py` script. Provide your policy's Hugging Face repository ID, a dataset ID (for pre/post-processing stats), and the robot's IP.
+
+```bash
+python examples/crab/evaluate.py \
+    --robot.remote_ip=<IP_ADDRESS_OF_ROBOT> \
+    --policy.repo_id=<hf_username>/<your_crab_policy> \
+    --dataset.repo_id=<hf_username>/<your_crab_dataset_for_stats>
+```
+
+## Troubleshooting
+
+-   **Connection Issues**: Ensure the robot's onboard computer is accessible via SSH/network and that the `crab_host` script is running. Verify IP addresses and ZMQ ports.
+-   **Motor Errors**: Double-check motor IDs, baud rates, and serial port permissions (`sudo chmod 666 /dev/ttyACM*` on Linux).
+-   **Calibration Problems**: Follow the calibration steps carefully for each arm.
