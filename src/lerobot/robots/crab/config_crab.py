@@ -18,7 +18,7 @@ from lerobot.cameras import CameraConfig
 from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
 
 from ..config import RobotConfig
-from .haptic_sensor import HapticSensorConfig
+from .tactile_sensor import TactileSensorConfig
 from ..mobile_base.config_mobile_base import MobileBaseSettings, MobileBaseClientSettings
 
 
@@ -50,12 +50,15 @@ class CrabConfig(RobotConfig):
     max_relative_target: float | dict[str, float] | None = None
     use_degrees: bool = False
     cameras: CrabCamerasConfig = field(default_factory=CrabCamerasConfig)
-    haptic_enabled: bool = False
-    haptic: HapticSensorConfig = field(default_factory=HapticSensorConfig)
+    
+    # Tactile sensor (replaces old haptic sensor)
+    tactile_enabled: bool = True
+    tactile: TactileSensorConfig = field(default_factory=TactileSensorConfig)
+    
     mobile_base: MobileBaseSettings = field(default_factory=MobileBaseSettings)
 
     # Motor telemetry settings
-    motor_telemetry_enabled: bool = True  # Enable motor smart data (current, temp, voltage, load)
+    motor_telemetry_enabled: bool = False
 
 
 @dataclass

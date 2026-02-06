@@ -28,7 +28,7 @@ from ..utils import ensure_safe_goal_position
 from ..mobile_base.mobile_base import MobileBase
 from ..mobile_base.config_mobile_base import MobileBaseConfig
 from .config_crab import CrabConfig
-from .haptic_sensor import HapticSensor
+from .tactile_sensor import TactileSensor
 
 logger = logging.getLogger(__name__)
 
@@ -83,8 +83,10 @@ class Crab(Robot):
             "right_arm_camera": config.cameras.right_arm_camera,
         }
         self.cameras = make_cameras_from_configs(camera_configs_dict)
-        self.haptic_enabled = config.haptic_enabled
-        self.haptic_sensor: HapticSensor | None = HapticSensor(config.haptic) if self.haptic_enabled else None
+        
+        # Tactile sensor (replaces old haptic sensor)
+        self.tactile_enabled = config.tactile_enabled
+        self.tactile_sensor: TactileSensor | None = TactileSensor(config.tactile) if self.tactile_enabled else None
 
         # Construct MobileBaseConfig from settings, preserving nested dataclasses
         mb_settings_dict = {f.name: getattr(config.mobile_base, f.name) for f in fields(config.mobile_base)}
@@ -98,10 +100,10 @@ class Crab(Robot):
         # Track which optional components are actually connected
         self._mobile_base_connected = False
         self._cameras_connected = {}  # cam_name -> bool
-        self._haptic_connected = False
+        self._tactile_connected = False
 
         # Motor telemetry setting
-        self._motor_telemetry_enabled = getattr(config, 'motor_telemetry_enabled', True)
+        self._motor_telemetry_enabled = getattr(config, "motor_telemetry_enabled", False)
 
     @property
     def _motors_ft(self) -> dict[str, type]:
@@ -129,12 +131,13 @@ class Crab(Robot):
         }
 
     @property
-    def _haptic_ft(self) -> dict[str, type]:
-        return HapticSensor.get_feature_types() if self.haptic_enabled else {}
+    def _tactile_ft(self) -> dict[str, type | tuple]:
+        """Feature types for tactile sensor data."""
+        return TactileSensor.get_feature_types() if self.tactile_enabled else {}
 
     @cached_property
     def observation_features(self) -> dict[str, type | tuple]:
-        return {**self._motors_ft, **self._cameras_ft, **self._haptic_ft}
+        return {**self._motors_ft, **self._cameras_ft, **self._tactile_ft}
 
     @cached_property
     def action_features(self) -> dict[str, type]:
@@ -143,7 +146,7 @@ class Crab(Robot):
     @property
     def is_connected(self) -> bool:
         """Returns True if the required components (arms) are connected.
-        Optional components (base, cameras, haptic) are not required."""
+        Optional components (base, cameras, tactile) are not required."""
         return self.left_arm.is_connected and self.right_arm.is_connected
 
     @property
@@ -152,8 +155,8 @@ class Crab(Robot):
         base = self.left_arm.is_connected and self.right_arm.is_connected
         base = base and self._mobile_base_connected
         base = base and all(self._cameras_connected.values())
-        if self.haptic_enabled:
-            base = base and self._haptic_connected
+        if self.tactile_enabled:
+            base = base and self._tactile_connected
         return base
 
     def connect(self, calibrate: bool = True) -> None:
@@ -201,30 +204,36 @@ class Crab(Robot):
                 logger.warning(f"  Continuing without {cam_name}")
                 self._cameras_connected[cam_name] = False
 
-        # === OPTIONAL: Haptic sensor ===
-        if self.haptic_enabled and self.haptic_sensor:
-            logger.info("Connecting haptic sensor...")
+        # === OPTIONAL: Tactile sensor ===
+        if self.tactile_enabled and self.tactile_sensor:
+            logger.info("Connecting tactile sensor...")
             try:
-                self.haptic_sensor.connect()
-                self._haptic_connected = self.haptic_sensor.is_connected
-                logger.info(f"  Haptic sensor connected: {self._haptic_connected}")
+                self.tactile_sensor.connect()
+                self._tactile_connected = self.tactile_sensor.is_connected
+                logger.info(f"  Tactile sensor connected: {self._tactile_connected}")
             except Exception as e:
-                logger.warning(f"  FAILED to connect haptic sensor: {e}")
-                logger.warning("  Continuing without haptic sensor")
-                self._haptic_connected = False
-                self.haptic_enabled = False
+                logger.warning(f"  FAILED to connect tactile sensor: {e}")
+                logger.warning("  Continuing without tactile sensor")
+                self._tactile_connected = False
+                self.tactile_enabled = False
 
         # Summary
         logger.info("=" * 40)
         logger.info("CONNECTION SUMMARY:")
-        logger.info(f"  Left arm:     {'OK' if self.left_arm.is_connected else 'FAILED'}")
-        logger.info(f"  Right arm:    {'OK' if self.right_arm.is_connected else 'FAILED'}")
-        logger.info(f"  Mobile base:  {'OK' if self._mobile_base_connected else 'DISABLED'}")
+        left_status = "OK" if self.left_arm.is_connected else "FAILED"
+        right_status = "OK" if self.right_arm.is_connected else "FAILED"
+        base_status = "OK" if self._mobile_base_connected else "DISABLED"
+        logger.info(f"  Left arm:       {left_status}")
+        logger.info(f"  Right arm:      {right_status}")
+        logger.info(f"  Mobile base:    {base_status}")
         for cam_name, connected in self._cameras_connected.items():
-            logger.info(f"  {cam_name}: {'OK' if connected else 'DISABLED'}")
-        if self.haptic_sensor:
-            logger.info(f"  Haptic:       {'OK' if self._haptic_connected else 'DISABLED'}")
-        logger.info(f"  Motor telemetry: {'ENABLED' if self._motor_telemetry_enabled else 'DISABLED'}")
+            cam_status = "OK" if connected else "DISABLED"
+            logger.info(f"  {cam_name}: {cam_status}")
+        if self.tactile_sensor:
+            tactile_status = "OK" if self._tactile_connected else "DISABLED"
+            logger.info(f"  Tactile sensor: {tactile_status}")
+        telem_status = "ENABLED" if self._motor_telemetry_enabled else "DISABLED"
+        logger.info(f"  Motor telemetry: {telem_status}")
         logger.info("=" * 40)
 
         logger.info(f"{self} connected (is_fully_connected={self.is_fully_connected})")
@@ -252,46 +261,32 @@ class Crab(Robot):
             self.mobile_base.configure()
 
     def _read_motor_telemetry(self) -> dict[str, float]:
-        """
-        Read motor telemetry (current, temperature, voltage, load) from both arms.
-        Returns a dict with keys like 'left_shoulder_pan.current', 'right_gripper.temp', etc.
-
-        This data is logged to Rerun for visualization during teleop.
-        """
+        """Read motor telemetry (current, temperature, voltage, load) from both arms."""
         telemetry = {}
 
         # Read from left arm
         try:
             for motor_id in range(1, 7):
                 motor_name = MOTOR_NAMES.get(motor_id, f"motor_{motor_id}")
-
-                # Read Present_Current (address 69, 2 bytes)
                 current_raw, result, _ = self.left_arm.bus.packet_handler.read2ByteTxRx(
                     self.left_arm.bus.port_handler, motor_id, 69
                 )
-                if result == 0:  # COMM_SUCCESS
-                    telemetry[f"left_{motor_name}.current"] = float(current_raw * 6.5)  # Convert to mA
-
-                # Read Present_Temperature (address 63, 1 byte)
+                if result == 0:
+                    telemetry[f"left_{motor_name}.current"] = float(current_raw * 6.5)
                 temp_raw, result, _ = self.left_arm.bus.packet_handler.read1ByteTxRx(
                     self.left_arm.bus.port_handler, motor_id, 63
                 )
                 if result == 0:
                     telemetry[f"left_{motor_name}.temp"] = float(temp_raw)
-
-                # Read Present_Voltage (address 62, 1 byte)
                 volt_raw, result, _ = self.left_arm.bus.packet_handler.read1ByteTxRx(
                     self.left_arm.bus.port_handler, motor_id, 62
                 )
                 if result == 0:
                     telemetry[f"left_{motor_name}.voltage"] = float(volt_raw / 10.0)
-
-                # Read Present_Load (address 60, 2 bytes)
                 load_raw, result, _ = self.left_arm.bus.packet_handler.read2ByteTxRx(
                     self.left_arm.bus.port_handler, motor_id, 60
                 )
                 if result == 0:
-                    # Sign-magnitude encoding, bit 10 is sign
                     if load_raw > 1023:
                         load = -(load_raw - 1024) / 10.0
                     else:
@@ -304,29 +299,21 @@ class Crab(Robot):
         try:
             for motor_id in range(1, 7):
                 motor_name = MOTOR_NAMES.get(motor_id, f"motor_{motor_id}")
-
-                # Read Present_Current
                 current_raw, result, _ = self.right_arm.bus.packet_handler.read2ByteTxRx(
                     self.right_arm.bus.port_handler, motor_id, 69
                 )
                 if result == 0:
                     telemetry[f"right_{motor_name}.current"] = float(current_raw * 6.5)
-
-                # Read Present_Temperature
                 temp_raw, result, _ = self.right_arm.bus.packet_handler.read1ByteTxRx(
                     self.right_arm.bus.port_handler, motor_id, 63
                 )
                 if result == 0:
                     telemetry[f"right_{motor_name}.temp"] = float(temp_raw)
-
-                # Read Present_Voltage
                 volt_raw, result, _ = self.right_arm.bus.packet_handler.read1ByteTxRx(
                     self.right_arm.bus.port_handler, motor_id, 62
                 )
                 if result == 0:
                     telemetry[f"right_{motor_name}.voltage"] = float(volt_raw / 10.0)
-
-                # Read Present_Load
                 load_raw, result, _ = self.right_arm.bus.packet_handler.read2ByteTxRx(
                     self.right_arm.bus.port_handler, motor_id, 60
                 )
@@ -368,17 +355,21 @@ class Crab(Robot):
             obs_dict["base_x.vel"] = 0.0
             obs_dict["base_theta.vel"] = 0.0
 
-        # Haptic sensor (or zeros if not connected)
-        if self.haptic_enabled and self._haptic_connected and self.haptic_sensor:
+        # Tactile sensor (or zeros if not connected)
+        if self.tactile_enabled and self._tactile_connected and self.tactile_sensor:
             try:
-                obs_dict.update(self.haptic_sensor.get_observation())
+                obs_dict.update(self.tactile_sensor.get_observation())
             except Exception as e:
-                logger.warning(f"Failed to get haptic observation: {e}")
-                for key in self._haptic_ft:
-                    obs_dict[key] = 0.0
+                logger.warning(f"Failed to get tactile observation: {e}")
+                obs_dict["tactile_left"] = np.zeros((10, 10), dtype=np.uint16)
+                obs_dict["tactile_right"] = np.zeros((10, 10), dtype=np.uint16)
+                obs_dict["tactile_left.sum"] = 0.0
+                obs_dict["tactile_right.sum"] = 0.0
         else:
-            for key in self._haptic_ft:
-                obs_dict[key] = 0.0
+            obs_dict["tactile_left"] = np.zeros((10, 10), dtype=np.uint16)
+            obs_dict["tactile_right"] = np.zeros((10, 10), dtype=np.uint16)
+            obs_dict["tactile_left.sum"] = 0.0
+            obs_dict["tactile_right.sum"] = 0.0
 
         # Motor telemetry (current, temperature, voltage, load)
         if self._motor_telemetry_enabled:
@@ -398,11 +389,9 @@ class Crab(Robot):
                     logger.debug(f"{self} read {cam_key}: {dt_ms:.1f}ms")
                 except Exception as e:
                     logger.warning(f"Failed to read {cam_key}: {e}")
-                    # Return black frame
                     shape = self._cameras_ft[cam_key]
                     obs_dict[cam_key] = np.zeros(shape, dtype=np.uint8)
             else:
-                # Return black frame for disconnected cameras
                 shape = self._cameras_ft[cam_key]
                 obs_dict[cam_key] = np.zeros(shape, dtype=np.uint8)
 
@@ -473,12 +462,12 @@ class Crab(Robot):
                     logger.warning(f"Error disconnecting {cam_name}: {e}")
             self._cameras_connected[cam_name] = False
 
-        # Disconnect haptic sensor
-        if self.haptic_sensor and self._haptic_connected:
+        # Disconnect tactile sensor
+        if self.tactile_sensor and self._tactile_connected:
             try:
-                self.haptic_sensor.disconnect()
+                self.tactile_sensor.disconnect()
             except Exception as e:
-                logger.warning(f"Error disconnecting haptic sensor: {e}")
-            self._haptic_connected = False
+                logger.warning(f"Error disconnecting tactile sensor: {e}")
+            self._tactile_connected = False
 
         logger.info(f"{self} disconnected.")

@@ -22,7 +22,7 @@ fi
 
 # --- Configuration ---
 # A unique ID for your Crab robot.
-ROBOT_ID="my_awesome_crab_robot_20251217"
+ROBOT_ID="my_awesome_crab_robot_20260130"
 
 # Serial port for the left SO-101 follower arm (uses persistent symlink)
 LEFT_ARM_PORT="/dev/manipulator_left"
