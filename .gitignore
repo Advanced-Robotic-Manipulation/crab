@@ -177,3 +177,19 @@ outputs/
 *.urdf
 *.xml
 *.part
+
+# Crab project
+*.bak
+*.backup
+*.orig
+*.modified
+*.pt
+*.pth
+*.safetensors
+!tests/artifacts/**/*.safetensors
+*.npy
+*.memmap
+*.log
+outputs/
+datasets/
+__pycache__/
