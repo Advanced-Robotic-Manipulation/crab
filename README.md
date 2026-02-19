@@ -1,81 +1,69 @@
-# 🦀 Crab Agent
+# Crab
 
-**Hierarchical VLM-VLA control for affordable bimanual manipulation on edge hardware.**
+**An open-source bimanual robot platform for haptic-aware manipulation research.**
 
-Crab is an open-source agent architecture that brings "thinking fast and slow" to low-cost robots. A Vision-Language Model plans and reasons (System 2), while a Vision-Language-Action model executes with haptic feedback (System 1) — all running locally on a Jetson.
+Crab is a low-cost bimanual robot built for studying how haptic (touch) feedback can improve learned manipulation policies. The core research question: can we train VLA policies *with* haptic sensing, then deploy them *without* — transferring haptic-informed behaviors into vision-only execution?
 
-Built on [LeRobot](https://github.com/huggingface/lerobot).
-
----
-
-## The Idea
-
-Most robot learning research requires expensive hardware or cloud inference. We wanted to see how far we can push a **~$800 bimanual robot** with **fully on-device AI**.
-
-The answer: structure compensates for scale.
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                        CRAB AGENT                           │
-│                                                             │
-│   "Pick up the red cup"                                     │
-│            │                                                │
-│            ▼                                                │
-│   ┌─────────────────┐         ┌─────────────────┐          │
-│   │   SYSTEM 2      │         │   SYSTEM 1      │          │
-│   │   (VLM)         │────────▶│   (VLA)         │          │
-│   │                 │         │                 │          │
-│   │ • Observe scene │         │ • 30Hz control  │          │
-│   │ • Plan actions  │         │ • Haptic feedback│         │
-│   │ • Verify result │         │ • Action chunks │          │
-│   │                 │         │                 │          │
-│   │ Qwen3-VL-8B     │         │ SmolVLA 450M    │          │
-│   │ ~2-3 sec/step   │         │ ~1-2 sec/action │          │
-│   └─────────────────┘         └─────────────────┘          │
-│                                                             │
-│            Jetson Orin NX 16GB — No cloud needed            │
-└─────────────────────────────────────────────────────────────┘
-```
+Built on [LeRobot](https://github.com/huggingface/lerobot) and [SmolVLA](https://huggingface.co/lerobot/smolvla_450m).
 
 ---
 
-## Key Ideas
+## Research Focus
 
-### 1. Validated Plan-ReAct
+### 1. Haptic-Aware Policy Learning
 
-The VLM doesn't just output actions — it plans multiple steps, but only commits to one. Before execution, rule-based validation catches errors. No bad moves reach the robot.
+During teleoperation and training, the robot collects haptic data alongside vision:
+- Force/pressure sensing in grippers
+- Contact detection and slip signals
+- Grasp confirmation feedback
+
+The policy learns implicit haptic priors — grip strength modulation, contact-aware placement, slip recovery — that transfer to deployment even when haptic sensors are degraded or absent.
+
+### 2. RL Fine-Tuning on Haptic Rewards
+
+SmolVLA provides the base visuomotor policy. We fine-tune with reinforcement learning using haptic-derived reward signals:
+- Grasp stability rewards from force feedback
+- Placement precision from contact sensing
+- Manipulation success from tactile confirmation
+
+This closes the loop between touch and learned behavior without requiring haptic input at inference time.
+
+### 3. Agentic Task Execution
+
+A VLM-based agent layer handles task decomposition and monitoring:
+- Scene understanding and step planning
+- Action validation before execution
+- Success verification and recovery
+
+This gives the system multi-step task capability while the VLA handles low-level control.
+
+---
+
+## Architecture
 
 ```
-OBSERVE → PLAN → VALIDATE → EXECUTE → VERIFY
-             │        │
-             │    rejection
-             │        │
-             └────────┘
-              (retry with feedback)
+                        "Stack the cups"
+                              |
+                              v
+                    +---------+----------+
+                    |   Agent (VLM)      |
+                    |   Task planning    |
+                    |   Verification     |
+                    +---------+----------+
+                              |
+                              v
+                    +---------+----------+
+                    |   SmolVLA Policy   |
+                    |   Haptic-trained   |
+                    |   30 Hz control    |
+                    +---------+----------+
+                              |
+                    +---------+----------+
+                    |   Crab Hardware    |
+                    |   2x arms + haptic |
+                    |   3x cameras       |
+                    +--------------------+
 ```
-
-### 2. Schema-Guided Reasoning (SGR)
-
-Small models need structure. We use constrained decoding to force the VLM through a reasoning checklist:
-
-```
-Plan:
-  current_state: "Holding red cup, plate visible"
-  remaining_steps: ["place cup", "pick next", "stack"]
-  reasoning: "Cup in hand, plate clear"
-  confidence: 8
-  action: Place { location: "blue plate", hand: "left" }
-```
-
-The schema *is* the prompt engineering.
-
-### 3. Haptic-in-the-Loop
-
-SmolVLA doesn't just replay trajectories — it responds to touch:
-- Grasp confirmation via force threshold
-- Slip detection triggers grip adjustment  
-- Contact sensing for placement
-- Collision detection stops motion
 
 ---
 
@@ -91,72 +79,52 @@ SmolVLA doesn't just replay trajectories — it responds to touch:
 
 ---
 
-## Models
+## Project Structure
 
-| Role | Model | Memory | Speed |
-|------|-------|--------|-------|
-| Planner | Qwen3-VL-8B INT4 | ~6 GB | ~15 tok/s |
-| Executor | SmolVLA 450M FP16 | ~1.5 GB | 30 Hz |
-
-Both run on device. Serialized execution (not simultaneous) keeps memory in check.
+```
+examples/crab/          # Teleoperation, recording, inference scripts
+src/lerobot/robots/crab/        # Robot implementation & config
+src/lerobot/robots/mobile_base/ # Mobile base support
+src/lerobot/motors/feetech_smart_data/  # Motor control & haptic data
+src/lerobot/teleoperators/gamepad/      # Gamepad teleoperation
+```
 
 ---
 
 ## Project Status
 
-🚧 **Work in progress** 
-
-- [x] Architecture design
-- [x] Model selection & memory planning
-- [ ] SGR schema implementation
-- [ ] Validation rules
-- [ ] SmolVLA + haptic integration
-- [ ] Real hardware testing
-- [ ] Training data collection
-- [ ] Fine-tuning for our setup
-
----
-
-## Architecture
-
-See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full specification.
-
-**The loop:**
-
-1. **OBSERVE** — VLM describes scene as structured JSON
-2. **PLAN** — VLM outputs action using SGR schema (Plan-ReAct pattern)
-3. **VALIDATE** — Rule-based checks before execution (no LLM)
-4. **EXECUTE** — SmolVLA runs action with haptic feedback
-5. **VERIFY** — VLM confirms success or triggers recovery
-
-**Timing:** ~5-10 seconds per subtask. Not fast, but reliable.
+- [x] Hardware platform (Crab bimanual robot)
+- [x] SmolVLA integration & edge deployment
+- [x] Teleoperation with haptic data collection
+- [ ] Haptic-conditioned policy training
+- [ ] RL fine-tuning with haptic rewards
+- [ ] Haptic-to-vision transfer evaluation
+- [ ] Agentic task execution layer
 
 ---
 
 ## Why "Crab"?
 
-Two arms. Grippers. Moves sideways sometimes. 🦀
+Two arms. Grippers. Moves sideways sometimes.
 
 ---
 
 ## Acknowledgments
 
-- [LeRobot](https://github.com/huggingface/lerobot) — Foundation for VLA training and deployment
-- [Qwen3-VL](https://github.com/QwenLM/Qwen3-VL) — VLM with 3D spatial reasoning
-- [SmolVLA](https://huggingface.co/lerobot/smolvla_450m) — Compact VLA that fits on edge
-- [SGR](https://abdullin.com/schema-guided-reasoning/) — Schema-Guided Reasoning patterns
-- [ERC-3 Winners](https://github.com/IlyaRice/Enterprise-RAG-Challenge-3-AI-Agents) — Validation and agent loop patterns
+- [LeRobot](https://github.com/huggingface/lerobot) — VLA training and robot control framework
+- [SmolVLA](https://huggingface.co/lerobot/smolvla_450m) — Base visuomotor policy
+- [Qwen-VL](https://github.com/QwenLM/Qwen-VL) — Vision-language model for agent layer
 
 ---
 
 ## Citation
 
 ```bibtex
-@software{crab-agent,
-  title = {Crab Agent: Hierarchical VLM-VLA Control for Affordable Bimanual Manipulation},
-  author = {TODO},
+@software{crab,
+  title = {Crab: A Bimanual Robot Platform for Haptic-Aware Manipulation Research},
+  author = {Advanced Robotic Manipulation},
   year = {2025},
-  url = {https://github.com/TODO/crab-agent}
+  url = {https://github.com/Advanced-Robotic-Manipulation/crab}
 }
 ```
 
@@ -164,4 +132,4 @@ Two arms. Grippers. Moves sideways sometimes. 🦀
 
 ## License
 
-MIT
+Apache 2.0 (following LeRobot)
