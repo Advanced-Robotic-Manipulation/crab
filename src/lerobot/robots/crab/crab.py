@@ -411,9 +411,11 @@ class Crab(Robot):
         base_action_x = action.get("base_x.vel", 0.0)
         base_action_theta = action.get("base_theta.vel", 0.0)
 
-        # Send actions to arms
-        self.left_arm.send_action(left_action)
-        self.right_arm.send_action(right_action)
+        # Send actions to arms (skip if no arm keys — avoids empty dict crash)
+        if left_action:
+            self.left_arm.send_action(left_action)
+        if right_action:
+            self.right_arm.send_action(right_action)
 
         # Send action to base (if connected)
         if self._mobile_base_connected:
