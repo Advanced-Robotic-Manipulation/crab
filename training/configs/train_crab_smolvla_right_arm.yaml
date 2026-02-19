@@ -1,0 +1,99 @@
+# ============================================================================
+# Training config: SmolVLA for Crab robot — RIGHT ARM ONLY (6 DoF, no tactile)
+# ============================================================================
+# Only trains on right arm joints (indices 6-11 from the 14-dim action space).
+# Tactile sensors disabled. Base velocity excluded (always 0 in data).
+# ============================================================================
+
+# --- Experiment ---
+experiment:
+  name: "crab_smolvla_right_arm"
+  seed: 42
+  output_dir: "outputs/crab_smolvla_right_arm"
+  resume_from_checkpoint: null
+
+# --- Model ---
+model:
+  pretrained_path: "lerobot/smolvla_base"  # SmolVLA base 450M
+  chunk_size: 50
+  n_action_steps: 50
+  max_state_dim: 32
+  max_action_dim: 32
+  action_dim: 6             # right arm only (6 joints)
+  state_dim: 6              # right arm only (6 joints)
+  num_steps: 10             # flow matching denoising steps
+  freeze_vision_encoder: true
+  train_expert_only: true
+  train_state_proj: true
+
+  tactile_encoder:
+    enabled: false
+    input_dim: 100
+    hidden_dim: 128
+    output_dim: 64
+    num_layers: 2
+    activation: "gelu"
+    dropout: 0.1
+
+# --- Dataset ---
+dataset:
+  episodes_dir: "/home/anywherevla/crab"
+  episode_names:
+    - "pick_place_medium_20260207_2358_2"
+    - "pick_place_medium_20260208_0023_2"
+  action_key: "action"
+  state_key: "observation.state"
+  # Right arm joint indices from the 14-dim action/state vectors:
+  #   6=right_shoulder_pan, 7=right_shoulder_lift, 8=right_elbow_flex,
+  #   9=right_wrist_flex, 10=right_wrist_roll, 11=right_gripper
+  action_indices: [6, 7, 8, 9, 10, 11]
+  state_indices: [6, 7, 8, 9, 10, 11]
+  tactile_left_key: "observation.tactile_left"
+  tactile_right_key: "observation.tactile_right"
+  image_keys:
+    - "observation.images.main_camera"
+    - "observation.images.left_arm_camera"
+    - "observation.images.right_arm_camera"
+  fps: 15
+  image_size: [256, 256]
+  original_image_size: [480, 640]
+  video_codec: "av1"
+  task_description: "Pick and place object"
+  val_ratio: 0.1
+  num_workers: 4
+
+# --- Training ---
+training:
+  batch_size: 16
+  gradient_accumulation_steps: 1  # effective batch = 16
+  steps: 30000
+  warmup_steps: 1000
+
+  # Optimizer
+  optimizer: "adamw"
+  learning_rate: 1.0e-4
+  weight_decay: 1.0e-10
+  betas: [0.9, 0.95]
+  eps: 1.0e-8
+  grad_clip_norm: 10.0
+
+  # Scheduler
+  scheduler: "cosine_with_warmup"
+  decay_steps: 30000
+  min_lr: 2.5e-6
+
+  # Mixed precision
+  use_amp: true
+  amp_dtype: "bfloat16"
+
+  # Checkpointing
+  checkpoint:
+    save_every_steps: 2000
+    keep_last_n: 5
+    save_optimizer: true
+    save_best: true
+
+  # Logging
+  log_every_steps: 50
+  eval_every_steps: 500
+  visualize_every_steps: 1000

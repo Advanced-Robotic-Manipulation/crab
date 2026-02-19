@@ -1,0 +1,175 @@
+# ============================================================================
+# Training config: Distill Pi0.5 -> X-VLA for Crab bimanual robot
+# ============================================================================
+# Robot: Crab (14 DoF bimanual mobile manipulator)
+#   - Left arm: 6 DoF (5 joints + gripper)
+#   - Right arm: 6 DoF (5 joints + gripper)
+#   - Base: 2 DoF (x_vel + theta_vel)
+#   - Tactile: 2x (10x10) pads on left/right gripper fingers
+#   - Cameras: 3 (main, left_arm, right_arm) @ 480x640, AV1, 15fps
+# ============================================================================
+# X-VLA Architecture:
+#   - Florence2 encoder (vision-language backbone)
+#   - SoftPromptedTransformer (temporal action head)
+#   - Flow-matching (diffusion-style) action generation
+#   - Domain-aware soft prompts + action encoder/decoder
+#   - Action space: "auto" mode - pads 14 real DoF to 20 for model compat
+# ============================================================================
+
+# --- Experiment ---
+experiment:
+  name: "crab_xvla_distill_v1"
+  seed: 42
+  output_dir: "outputs/crab_xvla_distill"
+  resume_from_checkpoint: null  # path to checkpoint dir to resume
+
+# --- Model ---
+model:
+  pretrained_path: "2toINF/X-VLA-AgiWorld-Challenge"  # X-VLA AgiWorld 0.9B
+  # X-VLA uses "auto" action mode: real_dim padded to max_dim inside model
+  action_mode: "auto"       # auto-detect action space, uses MSE on real_dim
+  real_action_dim: 14       # our Crab robot: 14 DoF
+  max_action_dim: 20        # X-VLA model internal action dim
+  num_actions: 30           # action chunk length (X-VLA default)
+  num_views: 3              # main + left_arm + right_arm cameras
+
+  # Domain ID for soft prompts
+  # Use 19 = fresh unused domain (0-18 are used by pretrained datasets)
+  # This gives us clean soft prompt + action encoder/decoder weights (random init)
+  # rather than conflicting with pretrained ee6d semantics
+  domain_id: 19
+
+  # Freeze schedule
+  freeze_vision_encoder: true   # freeze Florence2 vision initially
+  freeze_steps: 500             # freeze VLM+transformer_core for this many steps
+
+  # Tactile integration: encode 10x10 tactile as extra proprio dims
+  # tactile_left (100) + tactile_right (100) -> MLP -> tactile_embed_dim
+  # Appended to proprio vector before feeding into X-VLA action_encoder
+  tactile_encoder:
+    enabled: true
+    input_dim: 100          # 10x10 flattened
+    hidden_dim: 128
+    output_dim: 64          # compressed tactile embedding per hand
+    num_layers: 2
+    activation: "gelu"
+    dropout: 0.1
+    # Both left and right -> 64+64 = 128 appended to proprio
+    # Total proprio: 14 (joints) + 128 (tactile) = 142 -> projected to real_action_dim (20)
+
+# --- Dataset ---
+dataset:
+  episodes_dir: "episodes"
+  # Multi-task: each task has a folder with episode batches inside.
+  # Language instructions are read from each episode's meta/tasks.parquet.
+  tasks:
+    - name: "drive_up_to_box"
+      episodes:
+        - "stack_medium_20260211_1912"
+        - "stack_medium_20260211_1944"
+        - "stack_medium_20260211_2002"
+        - "stack_medium_20260211_2014"
+        - "stack_medium_20260211_2027"
+        - "stack_medium_20260211_2037"
+        - "stack_medium_20260211_2051"
+        - "stack_medium_20260211_2101"
+        - "stack_medium_20260211_2108"
+        - "stack_medium_20260211_2116"
+        - "stack_medium_20260211_2124"
+        - "stack_medium_20260211_2129"
+    - name: "pick_and_place_bottle"
+      episodes:
+        - "pick_place_medium_20260211_1405"
+        - "pick_place_medium_20260211_1453"
+        - "pick_place_medium_20260211_1502"
+        - "pick_place_medium_20260211_1510"
+        - "pick_place_medium_20260211_1651"
+        - "pick_place_medium_20260211_1702"
+        - "pick_place_medium_20260211_1709"
+        - "pick_place_medium_20260211_1717"
+        - "pick_place_medium_20260211_1729"
+        - "pick_place_medium_20260211_1729_2"
+    - name: "pick_and_place_can"
+      episodes:
+        - "pick_place_medium_20260210_1541"
+        - "pick_place_medium_20260210_1549"
+        - "pick_place_medium_20260210_1558"
+        - "pick_place_medium_20260210_1622"
+        - "pick_place_medium_20260210_1627"
+        - "pick_place_medium_20260210_1640"
+        - "pick_place_medium_20260210_1955"
+        - "pick_place_medium_20260210_2004"
+        - "pick_place_medium_20260210_2011"
+        - "pick_place_medium_20260210_2020"
+        - "pick_place_medium_20260210_2032"
+  # Feature keys matching info.json
+  action_key: "action"
+  state_key: "observation.state"
+  tactile_left_key: "observation.tactile_left"
+  tactile_right_key: "observation.tactile_right"
+  image_keys:
+    - "observation.images.main_camera"
+    - "observation.images.left_arm_camera"
+    - "observation.images.right_arm_camera"
+  # Data params
+  fps: 15
+  image_size: [224, 224]    # X-VLA Florence2 expects 224x224
+  original_image_size: [480, 640]
+  video_codec: "av1"
+  # Train/val split
+  val_ratio: 0.1
+  num_workers: 4
+
+# --- Training ---
+training:
+  batch_size: 8              # X-VLA is ~0.9B params, smaller batch
+  gradient_accumulation_steps: 4  # effective batch = 32
+  iters: 50000               # total training iterations
+  warmup_steps: 1000
+  freeze_steps: 500          # freeze VLM+transformer_core
+
+  # Optimizer (same as X-VLA defaults)
+  optimizer: "adamw"
+  learning_rate: 1.0e-4
+  learning_coef: 1.0         # LR multiplier for soft prompts
+  weight_decay: 0.0
+  betas: [0.9, 0.95]
+  max_grad_norm: 1.0
+
+  # Scheduler
+  use_cosine_decay: true
+  min_lr_ratio: 0.1
+
+  # Mixed precision
+  use_amp: true
+  amp_dtype: "bfloat16"     # bf16 for A100/H100
+
+  # Checkpointing
+  checkpoint:
+    save_every_steps: 5000
+    keep_last_n: 5           # keep last 5 checkpoints
+    save_optimizer: true
+    save_best: true          # save best based on val loss
+
+  # Logging
+  log_every_steps: 20
+  eval_every_steps: 500
+  visualize_every_steps: 1000
+
+# --- Visualization / Monitoring ---
+visualization:
+  tensorboard:
+    enabled: true
+    log_dir: "outputs/tensorboard"
+
+  # What to visualize
+  plots:
+    loss_curves: true
+    action_trajectories: true      # predicted vs ground truth per joint
+    tactile_heatmaps: true         # 10x10 tactile visualizations
+    action_distribution: true      # histogram of predicted actions
+    per_joint_error: true          # MSE per joint over time
+    gradient_norms: true
+    learning_rate: true
+    episode_rollouts: true         # sample full episode predictions
+    attention_maps: false          # expensive, enable if needed

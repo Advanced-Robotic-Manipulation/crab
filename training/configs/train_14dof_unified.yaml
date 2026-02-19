@@ -1,0 +1,128 @@
+experiment:
+  name: "crab_smolvla_14dof_unified"
+  seed: 42
+  output_dir: "outputs/crab_smolvla_14dof_unified"
+  resume_from_checkpoint: null
+
+model:
+  pretrained_path: "lerobot/smolvla_base"
+  chunk_size: 50
+  n_action_steps: 50
+  max_state_dim: 32
+  max_action_dim: 32
+  action_dim: 14
+  state_dim: 14
+  num_steps: 10
+  freeze_vision_encoder: true
+  train_expert_only: true
+  train_state_proj: true
+  tactile_encoder:
+    enabled: true
+    input_dim: 100
+    hidden_dim: 128
+    output_dim: 64
+    num_layers: 2
+    activation: "gelu"
+    dropout: 0.1
+
+# Loss masking: only compute loss on active joints per task
+# Keys are prefix-matched against task strings from tasks.parquet
+task_masks:
+  "Pick and place": [6, 7, 8, 9, 10, 11]
+  "Drive": [12, 13]
+
+dataset:
+  episodes_dir: "/home/anywherevla/crab/datasets"
+  episode_names:
+    # === CAN (11 datasets, 100 episodes) ===
+    - "pick_and_place_can/pick_place_medium_20260210_1541"
+    - "pick_and_place_can/pick_place_medium_20260210_1549"
+    - "pick_and_place_can/pick_place_medium_20260210_1558"
+    - "pick_and_place_can/pick_place_medium_20260210_1622"
+    - "pick_and_place_can/pick_place_medium_20260210_1627"
+    - "pick_and_place_can/pick_place_medium_20260210_1640"
+    - "pick_and_place_can/pick_place_medium_20260210_1955"
+    - "pick_and_place_can/pick_place_medium_20260210_2004"
+    - "pick_and_place_can/pick_place_medium_20260210_2011"
+    - "pick_and_place_can/pick_place_medium_20260210_2020"
+    - "pick_and_place_can/pick_place_medium_20260210_2032"
+    # === BOTTLE (10 datasets, 100 episodes) ===
+    - "pick_and_place_bottle/pick_place_medium_20260211_1405"
+    - "pick_and_place_bottle/pick_place_medium_20260211_1453"
+    - "pick_and_place_bottle/pick_place_medium_20260211_1502"
+    - "pick_and_place_bottle/pick_place_medium_20260211_1510"
+    - "pick_and_place_bottle/pick_place_medium_20260211_1651"
+    - "pick_and_place_bottle/pick_place_medium_20260211_1702"
+    - "pick_and_place_bottle/pick_place_medium_20260211_1709"
+    - "pick_and_place_bottle/pick_place_medium_20260211_1717"
+    - "pick_and_place_bottle/pick_place_medium_20260211_1729"
+    - "pick_and_place_bottle/pick_place_medium_20260211_1729_2"
+    # === WAFFLE (14 datasets, 100 episodes) ===
+    - "pick_and_place_waffle/pick_place_soft_20260212_1703"
+    - "pick_and_place_waffle/pick_place_soft_20260212_1719"
+    - "pick_and_place_waffle/pick_place_soft_20260212_1732"
+    - "pick_and_place_waffle/pick_place_soft_20260212_1822"
+    - "pick_and_place_waffle/pick_place_soft_20260212_1832"
+    - "pick_and_place_waffle/pick_place_soft_20260212_1839"
+    - "pick_and_place_waffle/pick_place_soft_20260212_1846"
+    - "pick_and_place_waffle/pick_place_soft_20260212_1851"
+    - "pick_and_place_waffle/pick_place_soft_20260212_1856"
+    - "pick_and_place_waffle/pick_place_soft_20260212_1902"
+    - "pick_and_place_waffle/pick_place_soft_20260212_1912"
+    - "pick_and_place_waffle/pick_place_soft_20260212_1959"
+    - "pick_and_place_waffle/pick_place_soft_20260212_2031"
+    - "pick_and_place_waffle/pick_place_soft_20260212_2043"
+    # === DRIVING (12 datasets, 100 episodes) ===
+    - "drive_up_to_box/stack_medium_20260211_1912"
+    - "drive_up_to_box/stack_medium_20260211_1944"
+    - "drive_up_to_box/stack_medium_20260211_2002"
+    - "drive_up_to_box/stack_medium_20260211_2014"
+    - "drive_up_to_box/stack_medium_20260211_2027"
+    - "drive_up_to_box/stack_medium_20260211_2037"
+    - "drive_up_to_box/stack_medium_20260211_2051"
+    - "drive_up_to_box/stack_medium_20260211_2101"
+    - "drive_up_to_box/stack_medium_20260211_2108"
+    - "drive_up_to_box/stack_medium_20260211_2116"
+    - "drive_up_to_box/stack_medium_20260211_2124"
+    - "drive_up_to_box/stack_medium_20260211_2129"
+  # NO action_indices/state_indices — full 14-DOF
+  action_key: "action"
+  state_key: "observation.state"
+  tactile_left_key: "observation.tactile_left"
+  tactile_right_key: "observation.tactile_right"
+  image_keys:
+    - "observation.images.main_camera"
+    - "observation.images.left_arm_camera"
+    - "observation.images.right_arm_camera"
+  fps: 15
+  image_size: [256, 256]
+  original_image_size: [480, 640]
+  video_codec: "av1"
+  task_description: "Pick and place object"  # fallback only
+  val_ratio: 0.1
+  num_workers: 0
+
+training:
+  batch_size: 8
+  gradient_accumulation_steps: 2
+  steps: 50000
+  warmup_steps: 2000
+  optimizer: "adamw"
+  learning_rate: 1.0e-4
+  weight_decay: 1.0e-10
+  betas: [0.9, 0.95]
+  eps: 1.0e-8
+  grad_clip_norm: 10.0
+  scheduler: "cosine_with_warmup"
+  decay_steps: 50000
+  min_lr: 2.5e-6
+  use_amp: true
+  amp_dtype: "bfloat16"
+  checkpoint:
+    save_every_steps: 5000
+    keep_last_n: 5
+    save_optimizer: true
+    save_best: true
+  log_every_steps: 50
+  eval_every_steps: 2500
+  visualize_every_steps: 1000
