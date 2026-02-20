@@ -1,7 +1,12 @@
+# ============================================================================
+# Cycle-1 training config for Crab SmolVLA (fragile-object safe policy)
+# Scope: pick_and_place_* + egg_carton_to_tray (clean set), optional cracked factor
+# ============================================================================
+
 experiment:
-  name: "crab_smolvla_14dof_unified"
+  name: "cycle1_rwfm_anchor_with_cracked"
   seed: 42
-  output_dir: "outputs/crab_smolvla_14dof_unified"
+  output_dir: "outputs/cycle1_rwfm_anchor_with_cracked"
   resume_from_checkpoint: null
 
 model:
@@ -25,17 +30,37 @@ model:
     activation: "gelu"
     dropout: 0.1
 
-# Loss masking: only compute loss on active joints per task
-# Keys are prefix-matched against task strings from tasks.parquet
+# Loss masking: use right arm joints for pick/place and carton opening tasks.
+# Without this explicit mask, unknown tasks fall back to all joints.
 task_masks:
   "Pick and place": [6, 7, 8, 9, 10, 11]
   "Open the carton": [6, 7, 8, 9, 10, 11]
-  "Drive": [12, 13]
 
 dataset:
-  episodes_dir: "/home/anywherevla/crab/datasets"
+  # Resolved relative to `crab/training` by build_dataloaders
+  episodes_dir: "../../"
   episode_names:
-    # === CAN (11 datasets, 100 episodes) ===
+    - "egg_carton_to_tray/pick_place_soft_20260213_1921"
+    - "egg_carton_to_tray/pick_place_soft_20260213_1936"
+    - "egg_carton_to_tray/pick_place_soft_20260217_1847"
+    - "egg_carton_to_tray/pick_place_soft_20260217_1905"
+    - "egg_carton_to_tray/pick_place_soft_20260217_2003"
+    - "egg_carton_to_tray/pick_place_soft_20260217_2020"
+    - "egg_carton_to_tray/pick_place_soft_20260218_1414"
+    - "egg_carton_to_tray/pick_place_soft_20260218_1422"
+    - "egg_carton_to_tray/pick_place_soft_20260218_1429"
+    - "egg_carton_to_tray/pick_place_soft_20260218_1446"
+    - "egg_carton_to_tray/pick_place_soft_20260219_1759"
+    - "pick_and_place_bottle/pick_place_medium_20260211_1405"
+    - "pick_and_place_bottle/pick_place_medium_20260211_1453"
+    - "pick_and_place_bottle/pick_place_medium_20260211_1502"
+    - "pick_and_place_bottle/pick_place_medium_20260211_1510"
+    - "pick_and_place_bottle/pick_place_medium_20260211_1651"
+    - "pick_and_place_bottle/pick_place_medium_20260211_1702"
+    - "pick_and_place_bottle/pick_place_medium_20260211_1709"
+    - "pick_and_place_bottle/pick_place_medium_20260211_1717"
+    - "pick_and_place_bottle/pick_place_medium_20260211_1729"
+    - "pick_and_place_bottle/pick_place_medium_20260211_1729_2"
     - "pick_and_place_can/pick_place_medium_20260210_1541"
     - "pick_and_place_can/pick_place_medium_20260210_1549"
     - "pick_and_place_can/pick_place_medium_20260210_1558"
@@ -47,18 +72,6 @@ dataset:
     - "pick_and_place_can/pick_place_medium_20260210_2011"
     - "pick_and_place_can/pick_place_medium_20260210_2020"
     - "pick_and_place_can/pick_place_medium_20260210_2032"
-    # === BOTTLE (10 datasets, 100 episodes) ===
-    - "pick_and_place_bottle/pick_place_medium_20260211_1405"
-    - "pick_and_place_bottle/pick_place_medium_20260211_1453"
-    - "pick_and_place_bottle/pick_place_medium_20260211_1502"
-    - "pick_and_place_bottle/pick_place_medium_20260211_1510"
-    - "pick_and_place_bottle/pick_place_medium_20260211_1651"
-    - "pick_and_place_bottle/pick_place_medium_20260211_1702"
-    - "pick_and_place_bottle/pick_place_medium_20260211_1709"
-    - "pick_and_place_bottle/pick_place_medium_20260211_1717"
-    - "pick_and_place_bottle/pick_place_medium_20260211_1729"
-    - "pick_and_place_bottle/pick_place_medium_20260211_1729_2"
-    # === WAFFLE (14 datasets, 100 episodes) ===
     - "pick_and_place_waffle/pick_place_soft_20260212_1703"
     - "pick_and_place_waffle/pick_place_soft_20260212_1719"
     - "pick_and_place_waffle/pick_place_soft_20260212_1732"
@@ -73,20 +86,9 @@ dataset:
     - "pick_and_place_waffle/pick_place_soft_20260212_1959"
     - "pick_and_place_waffle/pick_place_soft_20260212_2031"
     - "pick_and_place_waffle/pick_place_soft_20260212_2043"
-    # === DRIVING (12 datasets, 100 episodes) ===
-    - "drive_up_to_box/stack_medium_20260211_1912"
-    - "drive_up_to_box/stack_medium_20260211_1944"
-    - "drive_up_to_box/stack_medium_20260211_2002"
-    - "drive_up_to_box/stack_medium_20260211_2014"
-    - "drive_up_to_box/stack_medium_20260211_2027"
-    - "drive_up_to_box/stack_medium_20260211_2037"
-    - "drive_up_to_box/stack_medium_20260211_2051"
-    - "drive_up_to_box/stack_medium_20260211_2101"
-    - "drive_up_to_box/stack_medium_20260211_2108"
-    - "drive_up_to_box/stack_medium_20260211_2116"
-    - "drive_up_to_box/stack_medium_20260211_2124"
-    - "drive_up_to_box/stack_medium_20260211_2129"
-  # NO action_indices/state_indices — full 14-DOF
+    - "egg_carton_to_tray_cracked/pick_place_soft_20260219_1820"
+    - "egg_carton_to_tray_cracked/pick_place_soft_20260219_1831"
+    - "egg_carton_to_tray_cracked/pick_place_soft_20260219_1839"
   action_key: "action"
   state_key: "observation.state"
   tactile_left_key: "observation.tactile_left"
@@ -99,9 +101,11 @@ dataset:
   image_size: [256, 256]
   original_image_size: [480, 640]
   video_codec: "av1"
-  task_description: "Pick and place object"  # fallback only
+  task_description: "Pick and place object"
   val_ratio: 0.1
   num_workers: 0
+  chunk_return_gamma: 0.99
+  video_cache_dir: "../../.cache/crab_video_cache"
 
 training:
   batch_size: 8
@@ -129,8 +133,8 @@ training:
   visualize_every_steps: 1000
 
 reward_weighting:
-  enabled: false
-  alpha: 0.5
+  enabled: true
+  alpha: 0.25
   alpha_warmup_steps: 1000
   alpha_ramp_steps: 3000
   w_min: 0.25
@@ -140,10 +144,10 @@ reward_weighting:
   a_clip: 6.0
   group_key: "task"
   eps: 1.0e-6
-  stats_path: "docs/reward_weighting_stats.json"
+  stats_path: "docs/reward_weighting_stats_cycle1_with_cracked.json"
 
 anchor:
-  enabled: false
+  enabled: true
   lambda: 1.0e-4
   warmup_steps: 2000
   ramp_steps: 6000

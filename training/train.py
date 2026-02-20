@@ -8,9 +8,11 @@ Usage:
 """
 
 import argparse
+import csv
 import json
 import logging
 import math
+import numbers
 import shutil
 import sys
 import time
@@ -88,6 +90,63 @@ def save_checkpoint(model, optimizer, scheduler, step, train_loss, val_loss, out
         if ckpt_dir.exists():
             shutil.rmtree(ckpt_dir)
         logger.info("Continuing training despite save failure...")
+
+
+def to_scalar(value):
+    if isinstance(value, torch.Tensor):
+        if value.numel() != 1:
+            return None
+        return float(value.detach().item())
+    if isinstance(value, numbers.Number):
+        return float(value)
+    return None
+
+
+def extract_scalar_metrics(output):
+    if not isinstance(output, dict):
+        return {}
+    metrics = {}
+    for k, v in output.items():
+        scalar = to_scalar(v)
+        if scalar is not None:
+            metrics[k] = scalar
+    return metrics
+
+
+def update_metric_sums(metric_sums, metric_counts, metrics):
+    for k, v in metrics.items():
+        metric_sums[k] = metric_sums.get(k, 0.0) + float(v)
+        metric_counts[k] = metric_counts.get(k, 0) + 1
+
+
+def mean_metric(metric_sums, metric_counts, key):
+    c = metric_counts.get(key, 0)
+    if c <= 0:
+        return None
+    return metric_sums[key] / c
+
+
+def write_epoch_summaries(output_dir: Path, records: list[dict]):
+    json_path = output_dir / "epoch_summary.json"
+    jsonl_path = output_dir / "epoch_summary.jsonl"
+    csv_path = output_dir / "epoch_summary.csv"
+
+    # JSON array (easy for downstream scripts)
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(records, f, ensure_ascii=True, indent=2)
+
+    # JSONL (append/stream friendly)
+    with open(jsonl_path, "w", encoding="utf-8") as f:
+        for row in records:
+            f.write(json.dumps(row, ensure_ascii=True) + "\n")
+
+    # CSV with union of keys
+    all_keys = sorted({k for row in records for k in row.keys()})
+    with open(csv_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=all_keys)
+        writer.writeheader()
+        for row in records:
+            writer.writerow(row)
 
 
 @torch.no_grad()
@@ -183,20 +242,39 @@ def main():
     step = start_step
     running_loss = 0.0
     loss_count = 0
+    running_metric_sums = {}
+    running_metric_counts = {}
     t_start = time.perf_counter()
+    epoch_idx = 0
+    epoch_records = []
+    last_val_loss = None
 
     while step < total_steps:
+        epoch_loss_sum = 0.0
+        epoch_loss_count = 0
+        epoch_metric_sums = {}
+        epoch_metric_counts = {}
+        epoch_started_step = step
+
         for batch in train_loader:
             if step >= total_steps:
                 break
 
+            # Optional schedule hint for wrapper (RWFM alpha / anchor lambda ramps)
+            batch["train_step"] = step
+
             with torch.amp.autocast("cuda", dtype=torch.bfloat16):
                 output = model(batch)
             loss = output["loss"] if isinstance(output, dict) else output
+            batch_metrics = extract_scalar_metrics(output)
 
             (loss / grad_accum).backward()
             running_loss += loss.item()
             loss_count += 1
+            epoch_loss_sum += loss.item()
+            epoch_loss_count += 1
+            update_metric_sums(running_metric_sums, running_metric_counts, batch_metrics)
+            update_metric_sums(epoch_metric_sums, epoch_metric_counts, batch_metrics)
 
             if loss_count % grad_accum == 0:
                 nn.utils.clip_grad_norm_(
@@ -214,15 +292,57 @@ def main():
                     elapsed = time.perf_counter() - t_start
                     sps = (step - start_step) / max(1, elapsed)
                     eta = (total_steps - step) / max(0.01, sps)
-                    logger.info(
+
+                    # RWFM/anchor diagnostics (if available)
+                    w_mean = mean_metric(running_metric_sums, running_metric_counts, "rwfm_weight_mean")
+                    w_std = mean_metric(running_metric_sums, running_metric_counts, "rwfm_weight_std")
+                    w_p95 = mean_metric(running_metric_sums, running_metric_counts, "rwfm_weight_p95")
+                    w_max = mean_metric(running_metric_sums, running_metric_counts, "rwfm_weight_max")
+                    clipped_frac = mean_metric(running_metric_sums, running_metric_counts, "rwfm_clipped_frac")
+                    eff_bw = mean_metric(
+                        running_metric_sums, running_metric_counts, "rwfm_effective_batch_weight"
+                    )
+
+                    loss_unweighted = mean_metric(
+                        running_metric_sums, running_metric_counts, "loss_masked_unweighted"
+                    )
+                    if loss_unweighted is None:
+                        loss_unweighted = mean_metric(running_metric_sums, running_metric_counts, "loss_sample_mean")
+                    loss_weighted = mean_metric(running_metric_sums, running_metric_counts, "loss_rwfm")
+                    loss_anchor = mean_metric(running_metric_sums, running_metric_counts, "loss_anchor")
+                    alpha_eff = mean_metric(running_metric_sums, running_metric_counts, "alpha_eff")
+                    lambda_anchor = mean_metric(running_metric_sums, running_metric_counts, "lambda_anchor")
+
+                    msg = (
                         f"step {step}/{total_steps} | loss={avg_loss:.4f} | "
                         f"lr={lr:.2e} | {sps:.2f} steps/s | ETA: {eta/60:.0f}min"
                     )
+                    if w_mean is not None:
+                        msg += (
+                            f" | w_mean={w_mean:.3f} w_std={w_std:.3f} w_p95={w_p95:.3f} "
+                            f"w_max={w_max:.3f} clipped_frac={clipped_frac:.3f} "
+                            f"effective_batch_weight={eff_bw:.3f}"
+                        )
+                    if loss_unweighted is not None:
+                        msg += f" | loss_unweighted={loss_unweighted:.4f}"
+                    if loss_weighted is not None:
+                        msg += f" loss_weighted={loss_weighted:.4f}"
+                    if loss_anchor is not None:
+                        msg += f" loss_anchor={loss_anchor:.6f}"
+                    if alpha_eff is not None:
+                        msg += f" alpha={alpha_eff:.3f}"
+                    if lambda_anchor is not None:
+                        msg += f" lambda_anchor={lambda_anchor:.3e}"
+
+                    logger.info(msg)
                     running_loss = 0.0
                     loss_count = 0
+                    running_metric_sums = {}
+                    running_metric_counts = {}
 
                 if step % eval_every == 0:
                     val_loss = evaluate(model, val_loader, device)
+                    last_val_loss = val_loss
                     logger.info(f"step {step} | val_loss={val_loss:.4f}")
                     is_best = val_loss < best_val_loss
                     if is_best:
@@ -234,6 +354,47 @@ def main():
                 elif step % save_every == 0:
                     save_checkpoint(model, optimizer, scheduler, step,
                                     running_loss / max(1, loss_count), best_val_loss, output_dir)
+
+        # End of epoch summary (one full pass over train_loader or until training end)
+        if epoch_loss_count > 0:
+            epoch_idx += 1
+            epoch_record = {
+                "epoch": epoch_idx,
+                "step_start": epoch_started_step,
+                "step_end": step,
+                "train_loss_mean": epoch_loss_sum / epoch_loss_count,
+                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            }
+            if last_val_loss is not None:
+                epoch_record["val_loss_last"] = float(last_val_loss)
+
+            # Always include requested diagnostics if present
+            metric_aliases = {
+                "w_mean": "rwfm_weight_mean",
+                "w_std": "rwfm_weight_std",
+                "w_p95": "rwfm_weight_p95",
+                "w_max": "rwfm_weight_max",
+                "clipped_frac": "rwfm_clipped_frac",
+                "effective_batch_weight": "rwfm_effective_batch_weight",
+                "loss_unweighted": "loss_masked_unweighted",
+                "loss_weighted": "loss_rwfm",
+                "loss_anchor": "loss_anchor",
+                "alpha": "alpha_eff",
+                "lambda_anchor": "lambda_anchor",
+            }
+            for out_name, key in metric_aliases.items():
+                m = mean_metric(epoch_metric_sums, epoch_metric_counts, key)
+                if m is not None:
+                    epoch_record[out_name] = float(m)
+
+            # Helpful extra keys
+            for key in ["mask_ratio", "rwfm_enabled", "rwfm_clip_low_frac", "rwfm_clip_high_frac"]:
+                m = mean_metric(epoch_metric_sums, epoch_metric_counts, key)
+                if m is not None:
+                    epoch_record[key] = float(m)
+
+            epoch_records.append(epoch_record)
+            write_epoch_summaries(output_dir, epoch_records)
 
     # Final save
     val_loss = evaluate(model, val_loader, device)
