@@ -1,0 +1,144 @@
+{
+  "config": {
+    "group_key": "task",
+    "horizon": 50,
+    "gamma": 0.99,
+    "mix_beta": 0.7,
+    "z_clip": 6.0,
+    "a_clip": 6.0,
+    "alpha": 0.25,
+    "w_min": 0.25,
+    "w_max": 4.0,
+    "batch_size": 16,
+    "sim_batches": 4000
+  },
+  "group_stats": {
+    "Open the carton, put the egg on the tray, soft hardness": {
+      "chunk_median": -2.7231172921872244,
+      "chunk_mad": 2.047322699269726,
+      "chunk_scale": 3.0353606339372954,
+      "episode_median": -0.9057112336158752,
+      "episode_mad": 1.4343282580375671,
+      "episode_scale": 2.126535075366497,
+      "n_samples": 31968
+    },
+    "Pick and place the bottle, medium hardness": {
+      "chunk_median": -1.7755538646577722,
+      "chunk_mad": 1.271855909089648,
+      "chunk_scale": 1.885653570816312,
+      "episode_median": 1.3422900438308716,
+      "episode_mad": 0.4708492159843445,
+      "episode_scale": 0.6980810476183891,
+      "n_samples": 29292
+    },
+    "Pick and place the can, medium hardness": {
+      "chunk_median": -1.7820597825085853,
+      "chunk_mad": 1.086055398518713,
+      "chunk_scale": 1.6101857338438437,
+      "episode_median": 1.5185091495513916,
+      "episode_mad": 0.9269952178001404,
+      "episode_scale": 1.374363109910488,
+      "n_samples": 31458
+    },
+    "Pick and place the waffle, soft hardness": {
+      "chunk_median": -5.241310828840075,
+      "chunk_mad": 4.1885382819798975,
+      "chunk_scale": 6.209926856863396,
+      "episode_median": -0.011196613311767578,
+      "episode_mad": 1.05580735206604,
+      "episode_scale": 1.565339980173111,
+      "n_samples": 25134
+    }
+  },
+  "global_diagnostics": {
+    "A_percentiles": {
+      "p0_1": -6.0,
+      "p1": -6.0,
+      "p5": -3.76956771625887,
+      "p25": -1.1874022550054115,
+      "p50": -0.09962775736166732,
+      "p75": 0.42870683230541207,
+      "p95": 3.815662379951216,
+      "p99": 4.454446562741166,
+      "p99_9": 4.5197552286415315
+    },
+    "w_raw_percentiles": {
+      "p1": 0.22313016014842982,
+      "p5": 0.3896945978495466,
+      "p25": 0.7431550583740189,
+      "p50": 0.9754006792384899,
+      "p75": 1.1131309363949802,
+      "p95": 2.595854098895054,
+      "p99": 3.045337220520386
+    },
+    "w_norm_percentiles": {
+      "p1": 0.24497316705428285,
+      "p5": 0.3818588792765942,
+      "p25": 0.7282121930491754,
+      "p50": 0.9557879741598063,
+      "p75": 1.090748843339111,
+      "p95": 2.5436583992686517,
+      "p99": 2.9841036146366635
+    },
+    "clip_low_frac": 0.015994637341750672,
+    "clip_high_frac": 0.0,
+    "w_norm_mean": 1.0,
+    "w_norm_std": 0.5310184943025453
+  },
+  "family_diagnostics": {
+    "egg_carton_to_tray": {
+      "n_samples": 31968,
+      "A_percentiles": {
+        "p1": -4.932808080814573,
+        "p50": -0.21058411568719243,
+        "p99": 1.0948164620616865
+      },
+      "A_mean": -0.6377186671996086,
+      "clip_low_frac": 0.0,
+      "clip_high_frac": 0.0
+    },
+    "pick_and_place_bottle": {
+      "n_samples": 29292,
+      "A_percentiles": {
+        "p1": -6.0,
+        "p50": -0.08132410903276638,
+        "p99": 4.438905687237952
+      },
+      "A_mean": -0.7406566689486052,
+      "clip_low_frac": 0.05342755701215349,
+      "clip_high_frac": 0.0
+    },
+    "pick_and_place_can": {
+      "n_samples": 31458,
+      "A_percentiles": {
+        "p1": -6.0,
+        "p50": -0.006593332589306658,
+        "p99": 4.508943322007055
+      },
+      "A_mean": 0.1358535485489847,
+      "clip_low_frac": 0.010172293216351961,
+      "clip_high_frac": 0.0
+    },
+    "pick_and_place_waffle": {
+      "n_samples": 25134,
+      "A_percentiles": {
+        "p1": -3.482260703666573,
+        "p50": -0.12222153253564169,
+        "p99": 3.7479721866715128
+      },
+      "A_mean": -0.2329694097521249,
+      "clip_low_frac": 0.0,
+      "clip_high_frac": 0.0
+    }
+  },
+  "batch_diagnostics": {
+    "batch_size": 16,
+    "sim_batches": 4000,
+    "clip_low_frac_mean": 0.01415625,
+    "clip_high_frac_mean": 0.0,
+    "ess_mean": 0.8309915378757339,
+    "ess_p10": 0.7183845687983661,
+    "wn_max_p99": 3.2039923859222252,
+    "wn_min_p1": 0.2105493946467368
+  }
+}

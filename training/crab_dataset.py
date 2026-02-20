@@ -2,6 +2,10 @@
 Dataset loader for Crab robot LeRobot v3.0 format.
 Handles: parquet data, video frames (AV1), tactile matrices, multi-episode.
 
+v5: Reward-aware batch fields for RWFM.
+    Adds step_reward, chunk_return, episode_reward, episode_success, episode_damage,
+    dataset_name, task_name with robust fallbacks when meta/episodes is missing/partial.
+
 v4: Disk-backed video cache using numpy memmap.
     Pre-decodes videos to .npy files on disk, then mmap's for O(1) random access.
     RAM usage: ~0 for video frames (OS pages in/out as needed).
@@ -17,7 +21,6 @@ import hashlib
 import json
 import logging
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -40,6 +43,13 @@ class CrabEpisodeDataset(Dataset):
         - tactile_left: [100] tensor (10x10 flattened)
         - tactile_right: [100] tensor (10x10 flattened)
         - action: [chunk_size, action_dim] tensor (action chunk, optionally sliced)
+        - step_reward: scalar tensor
+        - chunk_return: scalar tensor (finite-horizon discounted return over chunk_size)
+        - episode_reward: scalar tensor
+        - episode_success: scalar tensor (0/1)
+        - episode_damage: scalar tensor (0/1)
+        - dataset_name: str
+        - task_name: str
         - task: str (text instruction, per-dataset from tasks.parquet)
         - metadata: dict (episode_index, frame_index, timestamp)
     """
@@ -57,6 +67,7 @@ class CrabEpisodeDataset(Dataset):
         image_keys: list[str] | None = None,
         action_indices: list[int] | None = None,
         state_indices: list[int] | None = None,
+        chunk_return_gamma: float | None = 0.99,
         transform=None,
         shared_video_cache: dict | None = None,
         video_cache_dir: str | Path | None = None,
@@ -68,6 +79,14 @@ class CrabEpisodeDataset(Dataset):
         self.task_description = task_description  # fallback only
         self.split = split
         self.transform = transform
+
+        if chunk_return_gamma is None:
+            self.chunk_return_gamma = None
+        else:
+            self.chunk_return_gamma = float(chunk_return_gamma)
+            if not (0.0 <= self.chunk_return_gamma <= 1.0):
+                raise ValueError(f"chunk_return_gamma must be in [0,1], got {self.chunk_return_gamma}")
+        self._discount_cache: dict[int, np.ndarray] = {}
 
         # Disk cache directory for decoded video frames
         self._cache_dir = Path(video_cache_dir) if video_cache_dir else VIDEO_CACHE_DIR
@@ -128,6 +147,47 @@ class CrabEpisodeDataset(Dataset):
             logger.warning(f"Failed to read tasks.parquet from {ep_path}: {e}")
         return None
 
+    def _safe_meta_value(self, value):
+        if value is None:
+            return None
+        try:
+            if pd.isna(value):
+                return None
+        except Exception:
+            pass
+        if isinstance(value, (np.integer, int)):
+            return int(value)
+        if isinstance(value, (np.floating, float)):
+            return float(value)
+        return value
+
+    def _read_episode_meta(self, ep_path: Path) -> dict[int, dict]:
+        """Load per-episode reward/success/damage meta. Returns empty dict if missing."""
+        episodes_files = sorted((ep_path / "meta" / "episodes").rglob("*.parquet"))
+        if not episodes_files:
+            return {}
+
+        try:
+            meta_df = pd.concat([pd.read_parquet(f) for f in episodes_files], ignore_index=True)
+        except Exception as e:
+            logger.warning(f"Failed to read meta/episodes from {ep_path}: {e}")
+            return {}
+
+        if "episode_index" not in meta_df.columns:
+            logger.warning(f"meta/episodes has no episode_index in {ep_path}")
+            return {}
+
+        episode_meta = {}
+        for _, row in meta_df.iterrows():
+            ep_idx = int(row["episode_index"])
+            episode_meta[ep_idx] = {
+                "episode_reward": self._safe_meta_value(row["episode_reward"]) if "episode_reward" in meta_df.columns else None,
+                "episode_success": self._safe_meta_value(row["episode_success"]) if "episode_success" in meta_df.columns else None,
+                "episode_damage": self._safe_meta_value(row["episode_damage"]) if "episode_damage" in meta_df.columns else None,
+            }
+
+        return episode_meta
+
     def _load_episode(self, ep_path: Path, val_ratio: float):
         """Load data from a single episode directory."""
         # Load info
@@ -147,6 +207,18 @@ class CrabEpisodeDataset(Dataset):
         data_files = sorted((ep_path / "data").rglob("*.parquet"))
         dfs = [pd.read_parquet(f) for f in data_files]
         df = pd.concat(dfs, ignore_index=True)
+        if "reward" not in df.columns:
+            logger.warning(f"No reward column in {ep_path}/data, fallback step_reward=0")
+            df["reward"] = 0.0
+
+        # Episode-level reward/success/damage metadata (optional)
+        episode_meta_lookup = self._read_episode_meta(ep_path)
+
+        # Stable dataset identifier (relative path when possible)
+        try:
+            dataset_name = ep_path.relative_to(self.episodes_dir).as_posix()
+        except Exception:
+            dataset_name = ep_path.name
 
         # Load stats for normalization
         stats_path = ep_path / "meta" / "stats.json"
@@ -166,6 +238,9 @@ class CrabEpisodeDataset(Dataset):
         for ep_idx in selected_episodes:
             ep_df = df[df["episode_index"] == ep_idx].sort_values("frame_index").reset_index(drop=True)
             n_frames = len(ep_df)
+            ep_rewards = ep_df["reward"].to_numpy(dtype=np.float32)
+            episode_reward_fallback = float(ep_rewards.sum())
+            episode_meta = episode_meta_lookup.get(int(ep_idx), {})
 
             # Track task counts
             self._task_counts[task] = self._task_counts.get(task, 0) + n_frames
@@ -181,6 +256,11 @@ class CrabEpisodeDataset(Dataset):
                     "info": info,
                     "stats": stats,
                     "task": task,
+                    "task_name": task,
+                    "dataset_name": dataset_name,
+                    "ep_rewards": ep_rewards,
+                    "episode_meta": episode_meta,
+                    "episode_reward_fallback": episode_reward_fallback,
                 })
 
     def __len__(self):
@@ -302,6 +382,7 @@ class CrabEpisodeDataset(Dataset):
         n_frames = sample["n_frames"]
         ep_path = sample["ep_path"]
         ep_idx = sample["ep_idx"]
+        ep_rewards = sample["ep_rewards"]
 
         row = ep_df.iloc[frame_idx]
 
@@ -330,12 +411,43 @@ class CrabEpisodeDataset(Dataset):
         for cam_key in self.image_keys:
             images[cam_key] = self._get_video_frame(ep_path, cam_key, global_index)
 
+        # --- Reward fields for RWFM ---
+        step_reward = float(ep_rewards[frame_idx]) if frame_idx < len(ep_rewards) else 0.0
+        chunk_end = min(frame_idx + self.chunk_size, len(ep_rewards))
+        future_rewards = ep_rewards[frame_idx:chunk_end]
+        if future_rewards.size == 0:
+            chunk_return = 0.0
+        elif self.chunk_return_gamma is None or np.isclose(self.chunk_return_gamma, 1.0):
+            chunk_return = float(future_rewards.sum())
+        else:
+            h = future_rewards.shape[0]
+            if h not in self._discount_cache:
+                self._discount_cache[h] = np.power(self.chunk_return_gamma, np.arange(h, dtype=np.float32))
+            chunk_return = float(np.sum(future_rewards * self._discount_cache[h]))
+
+        episode_meta = sample.get("episode_meta", {})
+        episode_reward = episode_meta.get("episode_reward", None)
+        if episode_reward is None:
+            episode_reward = sample.get("episode_reward_fallback", 0.0)
+        episode_reward = float(episode_reward)
+
+        episode_damage = episode_meta.get("episode_damage", None)
+        if episode_damage is None:
+            episode_damage = 1.0 if "cracked" in str(ep_path).lower() else 0.0
+        episode_damage = float(episode_damage)
+
+        episode_success = episode_meta.get("episode_success", None)
+        if episode_success is None:
+            episode_success = 1.0 if (episode_reward > 0.0 and episode_damage < 0.5) else 0.0
+        episode_success = float(episode_success)
+
         # --- Metadata ---
         metadata = {
             "episode_index": int(row["episode_index"]),
             "frame_index": int(row["frame_index"]),
             "timestamp": float(row["timestamp"]),
             "index": global_index,
+            "dataset_name": sample["dataset_name"],
         }
 
         return {
@@ -345,6 +457,13 @@ class CrabEpisodeDataset(Dataset):
             "tactile_right": tactile_right,
             "action": actions,
             "task": sample["task"],
+            "task_name": sample["task_name"],
+            "dataset_name": sample["dataset_name"],
+            "step_reward": torch.tensor(step_reward, dtype=torch.float32),
+            "chunk_return": torch.tensor(chunk_return, dtype=torch.float32),
+            "episode_reward": torch.tensor(episode_reward, dtype=torch.float32),
+            "episode_success": torch.tensor(episode_success, dtype=torch.float32),
+            "episode_damage": torch.tensor(episode_damage, dtype=torch.float32),
             "metadata": metadata,
         }
 
@@ -361,7 +480,14 @@ def collate_crab_batch(batch: list[dict]) -> dict:
         "tactile_left": torch.stack([b["tactile_left"] for b in batch]),
         "tactile_right": torch.stack([b["tactile_right"] for b in batch]),
         "action": torch.stack([b["action"] for b in batch]),
+        "step_reward": torch.stack([b["step_reward"] for b in batch]),
+        "chunk_return": torch.stack([b["chunk_return"] for b in batch]),
+        "episode_reward": torch.stack([b["episode_reward"] for b in batch]),
+        "episode_success": torch.stack([b["episode_success"] for b in batch]),
+        "episode_damage": torch.stack([b["episode_damage"] for b in batch]),
         "task": [b["task"] for b in batch],
+        "task_name": [b["task_name"] for b in batch],
+        "dataset_name": [b["dataset_name"] for b in batch],
         "metadata": [b["metadata"] for b in batch],
     }
 
@@ -392,6 +518,7 @@ def build_dataloaders(cfg: dict) -> tuple[DataLoader, DataLoader]:
         image_keys=ds_cfg["image_keys"],
         action_indices=action_indices,
         state_indices=state_indices,
+        chunk_return_gamma=ds_cfg.get("chunk_return_gamma", 0.99),
         video_cache_dir=video_cache_dir,
     )
 
