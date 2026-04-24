@@ -1,7 +1,10 @@
-# Crab — HapticVLA
+# HapticVLA: Contact-Rich Manipulation via Vision-Language-Action Model without Inference-Time Tactile Sensing
 
-**Contact-rich manipulation via Vision-Language-Action models without
-inference-time tactile sensing.**
+[![arXiv](https://img.shields.io/badge/arXiv-2406.09246-df2a2a.svg?style=for-the-badge)](https://arxiv.org/abs/2603.15257)
+[![Hugging Face](https://img.shields.io/badge/🤗-Models%20%26%20Data-yellow?style=for-the-badge)](https://huggingface.co/armteam)
+[![Email](https://img.shields.io/badge/✉️-Email-informational?style=for-the-badge)](mailto:konstantin.gubernatorov@skoltech.ru?subject=HapticVLA)
+
+<hr style="border: 2px solid gray;"></hr>
 
 This is the code release for the preprint
 [*HapticVLA: Contact-Rich Manipulation via Vision-Language-Action Model
