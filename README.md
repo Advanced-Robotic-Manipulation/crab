@@ -2,6 +2,7 @@
 
 [![arXiv](https://img.shields.io/badge/arXiv-2406.09246-df2a2a.svg?style=for-the-badge)](https://arxiv.org/abs/2603.15257)
 [![Hugging Face](https://img.shields.io/badge/🤗-Models%20%26%20Data-yellow?style=for-the-badge)](https://huggingface.co/armteam)
+[![Isaac Sim](https://img.shields.io/badge/Isaac%20Sim-Simulation-76B900?style=for-the-badge)]()
 [![Email](https://img.shields.io/badge/✉️-Email-informational?style=for-the-badge)](mailto:konstantin.gubernatorov@skoltech.ru?subject=HapticVLA)
 
 <hr style="border: 2px solid gray;"></hr>
