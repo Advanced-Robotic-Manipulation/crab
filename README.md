@@ -123,18 +123,11 @@ Preprint — the paper is under review and not yet published. If you use
 this code or the released checkpoints, please cite the arXiv version:
 
 ```bibtex
-@misc{hapticvla2026,
-  title         = {HapticVLA: Contact-Rich Manipulation via Vision-Language-Action
-                   Model without Inference-Time Tactile Sensing},
-  author        = {Gubernatorov, Konstantin and Sannikov, Mikhail and
-                   Mikhalchuk, Ilya and Fernando, Marcelino and Kuznetsov, Egor
-                   and Ogunwoye, Faith Ouwatobi and Asanov, Artem and
-                   Artemov, Makar and Guo, Ziang and Tsetserukou, Dzmitry},
-  year          = {2026},
-  eprint        = {2603.15257},
-  archivePrefix = {arXiv},
-  primaryClass  = {cs.RO},
-  url           = {https://arxiv.org/abs/2603.15257}
+@article{gubernatorov2026hapticvla,
+  title={HapticVLA: Contact-Rich Manipulation via Vision-Language-Action Model without Inference-Time Tactile Sensing},
+  author={Gubernatorov, Konstantin and Sannikov, Mikhail and Mikhalchuk, Ilya and Kuznetsov, Egor and Artemov, Makar and Ouwatobi, Ogunwoye Faith and Fernando, Marcelino and Asanov, Artem and Guo, Ziang and Tsetserukou, Dzmitry},
+  journal={arXiv preprint arXiv:2603.15257},
+  year={2026}
 }
 ```
 
