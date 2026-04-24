@@ -4,7 +4,6 @@
 [![Hugging Face](https://img.shields.io/badge/🤗-Models%20%26%20Data-yellow?style=for-the-badge)](https://huggingface.co/armteam)
 [![Isaac Sim](https://img.shields.io/badge/Isaac%20Sim-Simulation-76B900?style=for-the-badge)]()
 [![YouTube](https://img.shields.io/badge/▶️-YouTube-FF0000?style=for-the-badge)](https://www.youtube.com/watch?v=rYLjZGsskqs)
-[![Email](https://img.shields.io/badge/✉️-Email-informational?style=for-the-badge)](mailto:konstantin.gubernatorov@skoltech.ru?subject=HapticVLA)
 
 <hr style="border: 2px solid gray;"></hr>
 
