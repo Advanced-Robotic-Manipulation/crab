@@ -7,7 +7,7 @@
 
 <hr style="border: 2px solid gray;"></hr>
 
-This is the code release for the [*HapticVLA: Contact-Rich Manipulation via Vision-Language-Action Model without Inference-Time Tactile Sensing*](https://arxiv.org/abs/2603.15257) paper (accepted to IROS 2026). 
+This is the code release for the [*HapticVLA: Contact-Rich Manipulation via Vision-Language-Action Model without Inference-Time Tactile Sensing*](https://arxiv.org/abs/2603.15257) (accepted to IROS 2026). 
 
 The repository is a fork of
 [LeRobot](https://github.com/huggingface/lerobot) that adds the **Crab**
