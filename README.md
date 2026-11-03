@@ -1,6 +1,6 @@
 # HapticVLA: Contact-Rich Manipulation via Vision-Language-Action Model without Inference-Time Tactile Sensing
 
-[![arXiv](https://img.shields.io/badge/arXiv-2406.09246-df2a2a.svg?style=for-the-badge)](https://arxiv.org/abs/2603.15257)
+[![arXiv](https://img.shields.io/badge/arXiv-2603.15257-df2a2a.svg?style=for-the-badge)](https://arxiv.org/abs/2603.15257)
 [![Hugging Face](https://img.shields.io/badge/🤗-Models%20%26%20Data-yellow?style=for-the-badge)](https://huggingface.co/armteam)
 [![Isaac Sim](https://img.shields.io/badge/Isaac%20Sim-Simulation-76B900?style=for-the-badge)]()
 [![YouTube](https://img.shields.io/badge/▶️-YouTube-FF0000?style=for-the-badge)](https://www.youtube.com/watch?v=rYLjZGsskqs)
@@ -119,13 +119,14 @@ pip install -e .
 ## Citation
 
 Preprint — the paper is under review and not yet published. If you use
-this code or the released checkpoints, please cite the arXiv version:
+this code or the released checkpoints, please cite the IROS 2026 paper:
 
 ```bibtex
-@article{gubernatorov2026hapticvla,
+@inproceedings{gubernatorov2026hapticvla,
   title={HapticVLA: Contact-Rich Manipulation via Vision-Language-Action Model without Inference-Time Tactile Sensing},
   author={Gubernatorov, Konstantin and Sannikov, Mikhail and Mikhalchuk, Ilya and Kuznetsov, Egor and Artemov, Makar and Ouwatobi, Ogunwoye Faith and Fernando, Marcelino and Asanov, Artem and Guo, Ziang and Tsetserukou, Dzmitry},
-  journal={arXiv preprint arXiv:2603.15257},
+  booktitle={IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS)},
+  note={arXiv:2603.15257},
   year={2026}
 }
 ```
